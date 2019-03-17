@@ -70,4 +70,41 @@ impl Adapter {
             .await?;
         Ok(powered.0)
     }
+
+    pub fn devices(
+        &self,
+    ) -> Box<
+        impl Future<
+            Item = HashMap<
+                Path<'static>,
+                HashMap<String, HashMap<String, Variant<Box<RefArg + 'static>>>>,
+            >,
+            Error = Error,
+        >,
+    > {
+        let message = Message::new_method_call(
+            BLUEZ_SERVICE_NAME,
+            "/",
+            DBUS_OBJECTMANAGER_IFACE,
+            "GetManagedObjects",
+        )
+        .unwrap();
+
+        let method_call = self
+            .connection
+            .default
+            .method_call(message)
+            .unwrap()
+            .map_err(Error::from)
+            .and_then(|reply| {
+                reply
+                        .read1::<HashMap<
+                            Path<'static>,
+                            HashMap<String, HashMap<String, Variant<Box<RefArg>>>>,
+                        >>()
+                        .map_err(Error::from)
+            });
+
+        Box::new(method_call)
+    }
 }

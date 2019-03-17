@@ -39,6 +39,20 @@ impl Peripheral {
         self.adapter.is_powered().await
     }
 
+    pub fn devices(
+        &self,
+    ) -> Box<
+        impl Future<
+            Item = HashMap<
+                Path<'static>,
+                HashMap<String, HashMap<String, Variant<Box<RefArg + 'static>>>>,
+            >,
+            Error = Error,
+        >,
+    > {
+        self.adapter.devices()
+    }
+
     pub async fn register_gatt(&self) -> Result<(), Error> {
         self.gatt.register().await
     }
