@@ -90,6 +90,8 @@ impl Adapter {
         )
         .unwrap();
 
+        let map_connection = Arc::clone(&self.connection);
+
         let method_call = self
             .connection
             .default
@@ -98,11 +100,33 @@ impl Adapter {
             .map_err(Error::from)
             .and_then(|reply| {
                 reply
-                        .read1::<HashMap<
-                            Path<'static>,
-                            HashMap<String, HashMap<String, Variant<Box<RefArg>>>>,
-                        >>()
-                        .map_err(Error::from)
+                    .read1::<HashMap<Path, HashMap<String, HashMap<String, Variant<Box<RefArg>>>>>>(
+                    )
+                    .map_err(Error::from)
+            })
+            .map(move |map| {
+                map.into_iter()
+                    .filter_map(|(path, props)| {
+                        if path.contains("/org/bluez/hci0/dev_")
+                            && props.contains_key("org.bluez.Device1")
+                        {
+                            let spath: String = format!("{}", path);
+                            let spath_count = spath.split('/').count();
+                            if spath_count == 5 {
+                                return Some((path, props));
+                            }
+                        }
+
+                        None
+                    })
+                    .fold(HashMap::new(), move |mut acc, (path, mut props)| {
+                        let bz_device = props.remove("org.bluez.Device1").unwrap();
+                        let p = path.as_str().unwrap().clone().into();
+                        let mut device = Device::new(Arc::clone(&map_connection), path);
+                        device.assign_properties(bz_device);
+                        acc.insert(p, device);
+                        acc
+                    })
             });
 
         Box::new(method_call)

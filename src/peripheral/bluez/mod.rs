@@ -39,17 +39,7 @@ impl Peripheral {
         self.adapter.is_powered().await
     }
 
-    pub fn devices(
-        &self,
-    ) -> Box<
-        impl Future<
-            Item = HashMap<
-                Path<'static>,
-                HashMap<String, HashMap<String, Variant<Box<RefArg + 'static>>>>,
-            >,
-            Error = Error,
-        >,
-    > {
+    pub fn devices(&self) -> Box<impl Future<Item = HashMap<String, Device>, Error = Error>> {
         self.adapter.devices()
     }
 
