@@ -1,15 +1,15 @@
 #[cfg(any(target_os = "macos", target_os = "ios"))]
-mod corebluetooth;
+pub mod corebluetooth;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 pub use self::corebluetooth::Peripheral;
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
-mod bluez;
+pub mod bluez;
 #[cfg(any(target_os = "linux", target_os = "android"))]
 pub use self::bluez::Peripheral;
 
 #[cfg(any(target_os = "windows", target_os = "freebsd"))]
-mod usb;
+pub mod usb;
 #[cfg(any(target_os = "windows", target_os = "freebsd"))]
 pub use self::usb::Peripheral;
 

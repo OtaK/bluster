@@ -6,6 +6,7 @@ pub const DBUS_OBJECTMANAGER_IFACE: &str = "org.freedesktop.DBus.ObjectManager";
 pub const BLUEZ_SERVICE_NAME: &str = "org.bluez";
 
 pub const ADAPTER_IFACE: &str = "org.bluez.Adapter1";
+pub const DEVICE_IFACE: &str = "org.bluez.Device1";
 
 pub const LE_ADVERTISING_MANAGER_IFACE: &str = "org.bluez.LEAdvertisingManager1";
 pub const LE_ADVERTISEMENT_IFACE: &str = "org.bluez.LEAdvertisement1";

@@ -1,6 +1,12 @@
+use crate::peripheral::bluez::constants::BLUEZ_SERVICE_NAME;
+use crate::peripheral::bluez::constants::DBUS_PROPERTIES_IFACE;
+use crate::peripheral::bluez::constants::DEVICE_IFACE;
 use crate::peripheral::bluez::Connection;
+use crate::Error;
 use dbus::arg::{ArgType, RefArg, Variant};
-use dbus::Path;
+use dbus::stdintf::org_freedesktop_dbus::Properties;
+use dbus::{Message, Path};
+use futures::prelude::*;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -34,22 +40,22 @@ pub struct ManufacturerData {
 
 #[derive(Debug, Clone, Default)]
 pub struct DeviceProperties {
-    services_resolved: bool,
-    manufacturer_data: ManufacturerData,
-    blocked: bool,
-    adapter: String,
-    rssi: i64,
-    name: String,
-    address: String,
-    paired: bool,
-    icon: String,
-    alias: String,
-    trusted: bool,
-    address_type: String,
-    class: u64,
-    uuids: Vec<uuid::Uuid>,
-    legacy_pairing: bool,
-    connected: bool,
+    pub services_resolved: bool,
+    pub manufacturer_data: ManufacturerData,
+    pub blocked: bool,
+    pub adapter: String,
+    pub rssi: i16,
+    pub name: String,
+    pub address: String,
+    pub paired: bool,
+    pub icon: String,
+    pub alias: String,
+    pub trusted: bool,
+    pub address_type: String,
+    pub class: u64,
+    pub uuids: Vec<uuid::Uuid>,
+    pub legacy_pairing: bool,
+    pub connected: bool,
 }
 
 impl From<HashMap<String, Variant<Box<dyn RefArg>>>> for DeviceProperties {
@@ -108,7 +114,7 @@ impl From<HashMap<String, Variant<Box<dyn RefArg>>>> for DeviceProperties {
         }
 
         if let Some(data) = value.remove("RSSI").take() {
-            props.rssi = data.as_i64().unwrap();
+            props.rssi = data.as_i64().unwrap() as i16;
         }
 
         if let Some(data) = value.remove("Adapter").take() {
@@ -185,7 +191,14 @@ impl From<HashMap<String, Variant<Box<dyn RefArg>>>> for DeviceProperties {
 pub struct Device {
     pub object_path: Path<'static>,
     connection: Arc<Connection>,
-    properties: Option<Arc<RwLock<DeviceProperties>>>,
+    properties: Arc<RwLock<DeviceProperties>>,
+}
+
+impl std::ops::Deref for Device {
+    type Target = Arc<RwLock<DeviceProperties>>;
+    fn deref(&self) -> &Self::Target {
+        &self.properties
+    }
 }
 
 impl Device {
@@ -193,15 +206,61 @@ impl Device {
         Device {
             connection,
             object_path: path,
-            properties: None,
+            properties: Arc::new(RwLock::new(DeviceProperties::default())),
         }
     }
 
     pub fn assign_properties(&mut self, data: HashMap<String, Variant<Box<RefArg>>>) {
-        self.properties = Some(Arc::new(RwLock::new(data.into())));
+        *self.properties.write() = data.into();
     }
 
     pub fn refresh(&self) {
-        // TODO: Refresh stuff
+        let message = Message::new_method_call(
+            BLUEZ_SERVICE_NAME,
+            self.object_path.clone(),
+            DBUS_PROPERTIES_IFACE,
+            "GetAll",
+        )
+        .unwrap();
+
+        let inner_properties = Arc::clone(&self.properties);
+
+        let method_call = self
+            .connection
+            .default
+            .method_call(message)
+            .unwrap()
+            .map_err(Error::from)
+            .and_then(|reply| {
+                reply
+                    .read1::<HashMap<String, Variant<Box<dyn RefArg>>>>()
+                    .map_err(Error::from)
+            })
+            .map(DeviceProperties::from)
+            .and_then(move |new_props| {
+                *inner_properties.write() = new_props;
+
+                Ok(())
+            })
+            .map_err(|_| ());
+
+        self.connection.runtime.lock().unwrap().spawn(method_call);
+    }
+
+    pub fn update_rssi(&self) {
+        let props =
+            self.connection
+                .fallback
+                .with_path(BLUEZ_SERVICE_NAME, self.object_path.clone(), 5000);
+
+        let maybe_rssi: Result<i16, dbus::Error> = props.get(DEVICE_IFACE, "RSSI");
+        match maybe_rssi {
+            Ok(rssi) => {
+                self.properties.write().rssi = rssi;
+            }
+            Err(error) => {
+                println!("{}", error);
+            }
+        }
     }
 }

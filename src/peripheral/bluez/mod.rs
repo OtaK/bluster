@@ -3,6 +3,7 @@ mod advertisement;
 mod common;
 mod connection;
 mod constants;
+mod device;
 mod error;
 mod gatt;
 
