@@ -1,7 +1,7 @@
-use crate::peripheral::bluez::constants::BLUEZ_SERVICE_NAME;
-use crate::peripheral::bluez::constants::DBUS_PROPERTIES_IFACE;
-use crate::peripheral::bluez::constants::DEVICE_IFACE;
-use crate::peripheral::bluez::Connection;
+use crate::peripheral::bluez::{
+    constants::{BLUEZ_SERVICE_NAME, DBUS_PROPERTIES_IFACE, DEVICE_IFACE, NETWORK_IFACE},
+    Connection,
+};
 use crate::Error;
 use dbus::arg::{ArgType, RefArg, Variant};
 use dbus::stdintf::org_freedesktop_dbus::Properties;
@@ -10,6 +10,18 @@ use futures::prelude::*;
 use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum DevicePanStatus {
+    Disconnected,
+    Connected(String),
+}
+
+impl Default for DevicePanStatus {
+    fn default() -> Self {
+        DevicePanStatus::Disconnected
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ManufacturerCompany {
@@ -191,6 +203,7 @@ impl From<HashMap<String, Variant<Box<dyn RefArg>>>> for DeviceProperties {
 pub struct Device {
     pub object_path: Path<'static>,
     connection: Arc<Connection>,
+    pan_status: Arc<RwLock<DevicePanStatus>>,
     properties: Arc<RwLock<DeviceProperties>>,
 }
 
@@ -206,6 +219,7 @@ impl Device {
         Device {
             connection,
             object_path: path,
+            pan_status: Arc::new(RwLock::new(DevicePanStatus::default())),
             properties: Arc::new(RwLock::new(DeviceProperties::default())),
         }
     }
@@ -230,7 +244,7 @@ impl Device {
             .default
             .method_call(message)
             .unwrap()
-            .map_err(Error::from)
+            .from_err()
             .and_then(|reply| {
                 reply
                     .read1::<HashMap<String, Variant<Box<dyn RefArg>>>>()
@@ -262,5 +276,53 @@ impl Device {
                 println!("{}", error);
             }
         }
+    }
+
+    pub fn connect_pan(&self) -> impl Future<Item = (), Error = Error> {
+        let message = Message::new_method_call(
+            BLUEZ_SERVICE_NAME,
+            self.object_path.clone(),
+            NETWORK_IFACE,
+            "Connect",
+        )
+        .unwrap()
+        .append("nap");
+
+        let method_call = self
+            .connection
+            .default
+            .method_call(message)
+            .unwrap()
+            .from_err()
+            .and_then(|reply| reply.read1::<String>().map_err(Error::from));
+
+        let conn_status = Arc::clone(&self.pan_status);
+        method_call.and_then(move |connection_id| {
+            *conn_status.write() = DevicePanStatus::Connected(connection_id);
+            Ok(())
+        })
+    }
+
+    pub fn disconnect_pan(&self) -> impl Future<Item = (), Error = Error> {
+        let message = Message::new_method_call(
+            BLUEZ_SERVICE_NAME,
+            self.object_path.clone(),
+            NETWORK_IFACE,
+            "Disconnect",
+        )
+        .unwrap();
+
+        let message_call = self
+            .connection
+            .default
+            .method_call(message)
+            .unwrap()
+            .from_err();
+
+        let conn_status = Arc::clone(&self.pan_status);
+        message_call.and_then(move |_| {
+            *conn_status.write() = DevicePanStatus::Disconnected;
+            Ok(())
+        })
     }
 }
