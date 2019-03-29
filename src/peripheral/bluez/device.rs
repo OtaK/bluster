@@ -14,6 +14,7 @@ use std::sync::Arc;
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub enum DevicePanStatus {
     Disconnected,
+    Connecting,
     Connected(String),
 }
 
@@ -279,6 +280,7 @@ impl Device {
     }
 
     pub fn connect_pan(&self) -> impl Future<Item = (), Error = Error> {
+        *self.pan_status.write() = DevicePanStatus::Connecting;
         let message = Message::new_method_call(
             BLUEZ_SERVICE_NAME,
             self.object_path.clone(),
@@ -324,5 +326,24 @@ impl Device {
             *conn_status.write() = DevicePanStatus::Disconnected;
             Ok(())
         })
+    }
+
+    pub fn refresh_pan_status(&self) -> Result<DevicePanStatus, Error> {
+        let props =
+            self.connection
+                .fallback
+                .with_path(BLUEZ_SERVICE_NAME, self.object_path.clone(), 5000);
+
+        let connected: bool = props.get(NETWORK_IFACE, "Connected")?;
+        let status = if connected {
+            let interface: String = props.get(NETWORK_IFACE, "Interface")?;
+            DevicePanStatus::Connected(interface)
+        } else {
+            DevicePanStatus::Disconnected
+        };
+
+        *self.pan_status.write() = status.clone();
+
+        Ok(status)
     }
 }
